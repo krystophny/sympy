@@ -1180,7 +1180,12 @@ class MathematicaParser:
 
         self._util_remove_newlines(lines, tokens, inside_enclosure)
 
-        for op_type, grouping_strat, op_dict in reversed(self._mathematica_op_precedence):
+        levels = self._mathematica_op_precedence[::-1]
+        level = 0
+        tighter_infix: set[str] = set()
+        while level < len(levels):
+            op_type, grouping_strat, op_dict = levels[level]
+            restart = False
             if "*" in op_dict:
                 self._util_add_missing_asterisks(tokens)
             size: int = len(tokens)
@@ -1251,6 +1256,18 @@ class MathematicaParser:
                         if pointer == 0 or pointer == size - 1 or self._is_op(tokens[pointer - 1]) or self._is_op(tokens[pointer + 1]):
                             pointer += 1
                             continue
+                        if grouping_strat == self.RIGHT:
+                            end = pointer + 1
+                            while (end + 2 < size and isinstance(tokens[end + 1], str)
+                                   and tokens[end + 1] in op_dict):
+                                if self._is_op(tokens[end + 2]):
+                                    break
+                                end += 2
+                            else:
+                                end = size
+                            if end < size:
+                                pointer += 1
+                                continue
                     # An operator whose operand is not there yet has to wait for
                     # it: a "!" with nothing on its left is the prefix Not rather
                     # than a Factorial, and the ``'`` in ``a&'`` or the outer
@@ -1264,6 +1281,12 @@ class MathematicaParser:
                         if op_type == self.PREFIX and (pointer == size - 1 or self._is_op(tokens[pointer + 1])):
                             pointer += 1
                             continue
+                    if (op_type == self.PREFIX and token in ("+", "-")
+                            and pointer + 2 < size
+                            and isinstance(tokens[pointer + 2], str)
+                            and tokens[pointer + 2] in tighter_infix):
+                        pointer += 1
+                        continue
                     changed = True
                     tokens[pointer] = node
                     if op_type == self.INFIX:
@@ -1383,7 +1406,18 @@ class MathematicaParser:
                             node.extend(new_node)
                         else:
                             tokens[pointer] = new_node
+                    if op_type == self.PREFIX and token in ("+", "-"):
+                        # Signed operands can unblock powers before multiplication.
+                        restart = True
+                        break
                 pointer += 1
+            if restart:
+                level = 0
+                tighter_infix.clear()
+            else:
+                if op_type == self.INFIX:
+                    tighter_infix.update(op_dict)
+                level += 1
         if len(tokens) > 1 or (len(lines) == 0 and len(tokens) == 0):
             if changed:
                 # Trick to deal with cases in which an operator with lower

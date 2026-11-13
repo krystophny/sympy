@@ -695,6 +695,37 @@ def test_mathematica_unary_plus():
     assert chain("-+a") == ["Times", "-1", ["Plus", "a"]]
 
 
+def test_mathematica_signed_power_precedence():
+    chain = parse_mathematica_to_fullformlist
+    reciprocal = ["Power", "r", "-1"]
+    product = ["Times", reciprocal, "x"]
+    assert chain("r^-1 x") == product
+    assert chain("r^-1*x") == product
+    assert chain("r^(-1) x") == product
+    assert chain("r^-1+x") == ["Plus", reciprocal, "x"]
+    assert chain("r^+1 x") == ["Times", ["Power", "r", ["Plus", "1"]], "x"]
+    assert chain("-r^2 x") == ["Times", ["Times", "-1", ["Power", "r", "2"]], "x"]
+    assert chain("r^-a^2 x") == [
+        "Times", ["Power", "r", ["Times", "-1", ["Power", "a", "2"]]], "x"]
+    assert chain("r^a^-b x") == [
+        "Times", ["Power", "r", ["Power", "a", ["Times", "-1", "b"]]], "x"]
+    assert chain("r^-a^-b x") == [
+        "Times", ["Power", "r", ["Times", "-1", ["Power", "a", ["Times", "-1", "b"]]]], "x"]
+    assert chain("r^-f@Sin[y] x") == [
+        "Times", ["Power", "r", ["Times", "-1", ["f", ["Sin", "y"]]]], "x"]
+    assert chain("r^-f@-g x") == [
+        "Times", ["Power", "r", ["Times", "-1", ["f", ["Times", "-1", "g"]]]], "x"]
+    assert chain("q\nr^-1 x") == ["CompoundExpression", "q", product]
+    assert chain("r^-1 x\nq") == ["CompoundExpression", product, "q"]
+    assert chain("r^-1; x") == ["CompoundExpression", reciprocal, "x"]
+
+    r = Symbol("r")
+    assert parse_mathematica("r^-1 x") == x/r
+    assert parse_mathematica("r^-1*x") == x/r
+    assert parse_mathematica("r^-1+x") == 1/r + x
+    assert parse_mathematica("2^-3^2") == S(1)/512
+
+
 def test_mathematica_blank_needs_a_symbol():
     # ``x_``/``x_h`` build a Pattern only after a symbol.  After anything else
     # the blank stands on its own and merely multiplies: Mathematica reads
